@@ -66,6 +66,16 @@ module CgAll =
        let kind = `Correctness
      end)
 
+module CgStack_filename =
+  Pcg.Empty_string
+    (struct
+       let option_name = "-pcg-stack"
+       let help = "stack computation" 
+       let kind= `Tuning 
+       let arg_name = "stack_file"
+       let default ="stack.txt"
+     end)
+
 
 let logdeb3 msg =
   Pcg.debug ~level:3 msg
@@ -90,6 +100,11 @@ module PairString = struct type t = string * string let compare = compare end
 module PairStringSet = Set.Make(PairString)
 
 type prj_desc = (function_node StringMap.t * module_node StringMap.t * PairStringSet.t * PairStringSet.t)
+
+let rec max_list l =
+  match l with 
+    [] -> 0 
+   |t::q -> max t (max_list q) ;;
 
 let cPT=ref 0
 
@@ -340,15 +355,81 @@ let print_graph_mod2 fd ((mf,mm,gf,gm) as prj:prj_desc)=
     print_called();
     Printf.fprintf fd "}\n"
 
+let computingmap = ref StringMap.empty 
 
+
+let parse_stack_size_file prj =
+  let parse_line line_str map =
+    let reg = Str.regexp "^\\([A-Za-z0-9_]+\\)[ \t]+\\([0-9]+\\)" in
+    if (Str.string_match reg line_str 0)
+    then
+      begin
+	let n1 = Str.matched_group 1 line_str
+	and n2 = Str.matched_group 2 line_str in
+        Pcg.debug ~level:2 "function %s : %s" n1 n2 ;
+        StringMap.add n1 (int_of_string n2) map
+      end
+    else
+      begin
+        Pcg.warning  "nothing to parse at this line %s" line_str ;
+        map
+      end
+  in
+  try
+    let filename = CgStack_filename.get () in
+    try
+      let ref_file = open_in filename
+      in
+      try
+	Pcg.debug ~level:2 "Parsing stack conf file %s\n" filename ;
+	while true do
+	  computingmap := parse_line (input_line ref_file) !computingmap;
+	done;      
+      with End_of_file -> close_in ref_file
+    with 
+      Sys_error(str)	-> 
+      Pcg.warning "Error opening file %s (%s)\n" filename str 
+  with 
+    (* no stack file  *)
+    Not_found		->
+     Pcg.debug ~level:2 "No stack file set"
+
+let compute_stack ((mf,mm,gf,gm) as prj) =
+  parse_stack_size_file();
+  let stack_size_of_fn (fn:string) =
+    try
+      StringMap.find fn !computingmap
+    with
+      Not_found ->
+      Pcg.warning "Stack of %s unknown\n" fn;
+      0
+  in
+  let rec max_stack_function fn =
+    let list_of_called_fn = 
+      let subset = PairStringSet.filter (fun (x,_) -> String.equal x fn) gf
+      in
+      let ffold (a,b) p = b :: p
+      in
+      PairStringSet.fold ffold gf []
+    in
+    (stack_size_of_fn fn) + (max_list (List.map stack_size_of_fn list_of_called_fn))
+  in
+  let fiter k f_elt =
+    Pcg.log "COMPUTED STACK FROM: %s : %d\n" k (max_stack_function k)
+  in
+  StringMap.iter fiter mf 
 
 let run () =  
 
   let fcg_filename = FunctionCg.get()
   and mcg_filename = ModuleCg.get()
+  and stack_filename = CgStack_filename.get()
   in
 
-    if (((String.length fcg_filename) >0) || ((String.length mcg_filename) >0) || (CgAll.get ()))
+    if (   ((String.length fcg_filename) >0)
+        || ((String.length mcg_filename) >0)
+        || ((String.length stack_filename) >0)
+        || (CgAll.get ()))
     then
       begin
         ignore (Ast.get());
@@ -401,6 +482,10 @@ let run () =
                   "error during output of module callgraph: %s >%s<"
                   (Printexc.to_string e) mcg_filename
             end;
+
+        if ((String.length stack_filename)>0)
+        then
+          compute_stack prj;
 
       end
 
