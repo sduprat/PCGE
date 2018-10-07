@@ -76,6 +76,24 @@ module CgStack_filename =
        let default ="stack.txt"
      end)
 
+module CgStack_calls =
+  Pcg.Empty_string
+    (struct
+       let option_name = "-pcg-stack-call"
+       let help = "add additional calls (resulting from callback trough function pointers" 
+       let kind= `Tuning 
+       let arg_name = "stack_calls_file"
+       let default ="stack_calls.txt"
+     end)
+
+module CgStack_caller =
+  Pcg.True
+    (struct
+       let option_name = "-pcg-stack-caller"
+       let help = "compute only for uncalled function"
+       let kind = `Correctness
+     end)
+
 
 let logdeb3 msg =
   Pcg.debug ~level:3 msg
@@ -421,7 +439,14 @@ let compute_stack ((mf,mm,gf,gm) as prj) =
     Pcg.debug "starting: %s\n" k ;
     Pcg.log "COMPUTED STACK FROM: %s : %d\n" k (max_stack_function "" k)
   in
-  StringMap.iter fiter mf 
+  let func_to_analyse =
+    if (CgStack_caller.get())
+    then
+      StringMap.filter (fun m _ -> not (PairStringSet.exists (fun (_,b) -> m=b) gf)) mf
+    else
+      mf;
+  in
+  StringMap.iter fiter func_to_analyse 
 
 let run () =  
 
