@@ -76,10 +76,10 @@ module CgStack_filename =
        let default ="stack.txt"
      end)
 
-module CgStack_calls =
+module CgStack_calls_filename =
   Pcg.Empty_string
     (struct
-       let option_name = "-pcg-stack-call"
+       let option_name = "-pcg-stack-calls"
        let help = "add additional calls (resulting from callback trough function pointers" 
        let kind= `Tuning 
        let arg_name = "stack_calls_file"
@@ -412,8 +412,47 @@ let parse_stack_size_file prj =
     Not_found		->
      Pcg.debug ~level:2 "No stack file set"
 
+let computingset = ref PairStringSet.empty 
+
+let parse_stack_call_file prj =
+  let parse_line line_str set =
+    let reg = Str.regexp "^\\([A-Za-z0-9_]+\\)[ \t]+\\([A-Za-z0-9_]+\\)" in
+    if (Str.string_match reg line_str 0)
+    then
+      begin
+	let f1 = Str.matched_group 1 line_str
+	and f2 = Str.matched_group 2 line_str in
+        Pcg.debug ~level:2 "add call %s -> %s" f1 f2 ;
+        PairStringSet.add (f1,f2) set
+      end
+    else
+      begin
+        Pcg.warning  "nothing to parse at this line %s" line_str ;
+        set
+      end
+  in
+  try
+    let filename = CgStack_calls_filename.get () in
+    try
+      let ref_file = open_in filename
+      in
+      try
+	Pcg.debug ~level:2 "Parsing stack calls conf file %s\n" filename ;
+	while true do
+	  computingset := parse_line (input_line ref_file) !computingset;
+	done;      
+      with End_of_file -> close_in ref_file
+    with 
+      Sys_error(str)	-> 
+      Pcg.warning "Error opening file %s (%s)\n" filename str 
+  with 
+    (* no stack file  *)
+    Not_found		->
+     Pcg.debug ~level:2 "No stack file set"
+
 let compute_stack ((mf,mm,gf,gm) as prj) =
   parse_stack_size_file();
+  parse_stack_call_file();
   let stack_size_of_fn (fn:string) =
     try
       StringMap.find fn !computingmap
@@ -424,7 +463,7 @@ let compute_stack ((mf,mm,gf,gm) as prj) =
   in
   let rec max_stack_function str fn=
     let list_of_called_fn = 
-      let subset = PairStringSet.filter (fun (x,_) -> 0 = String.compare x fn) gf
+      let subset = PairStringSet.filter (fun (x,_) -> 0 = String.compare x fn) (PairStringSet.union gf !computingset)
       in
       let ffold (a,b) p = 
         b :: p
