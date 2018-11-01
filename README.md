@@ -2,13 +2,14 @@
 Project Call Graph Explorer
 
 This is a simple [Frama-C](https://frama-c.com) plugin devoted to analyse C projects and to produce retro-design information. 
-This plugin enable to generate:
+This plugin is able to generate:
   - function call-graph
   - module call-graph (deduced from function call-graph)
   - automatic call dependencies of each module (.c file)
   - computation of the longuest branch in the calltree for stack analysis usage (stack usage of each function shall be entered as input)
 
-Graphs are generated in dot format. Use graphviz to generate .png, .svg of other formats.
+Graphs are generated in dot format. Use [graphviz](https://www.graphviz.org/) to generate .png, .svg of other formats.
+This plugin is easy to modify for other usages.
   
   ## Installation
   
@@ -27,5 +28,13 @@ frama-c -load-script <absolute-path>/plug.ml -pcg-help # to check is the plugin 
 make
 make install
 frama-c -pcg-help # to check is the plugin is available
-````
+```
+
+## Examples
+
+* function call graph
+![f](https://user-images.githubusercontent.com/18215280/47879869-03defd80-de22-11e8-8361-712655271e4d.png)
+
+* module call graph
+![m](https://user-images.githubusercontent.com/18215280/47879871-04779400-de22-11e8-81ef-b2da023b9049.png)
 
