@@ -32,6 +32,13 @@ frama-c -pcg-help # to check is the plugin is available
 
 ## Examples
 
+```shell
+frama-c -no-annot <source files> -load-script ~/Tools/FRAMAC/PLUGINS/PCGE_Argon/plug.ml -pcg-m m.dot -pcg-f f.dot
+dot -Tsvg m.dot -o m.svg
+dot -Tsvg f.dot -o f.svg
+firefox m.svg f.sv
+```
+
 * function call graph
 ![f](https://user-images.githubusercontent.com/18215280/47879869-03defd80-de22-11e8-8361-712655271e4d.png)
 
