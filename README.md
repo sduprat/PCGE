@@ -13,7 +13,7 @@ This plugin is easy to modify for other usages.
   
   ## Installation
   
-  Prerequisite:
+  Prerequisites:
   - Ocaml (>= 4.02.3)
   - Frama-C ( >= Sulfur)
 very easy to adapt to prior versions of OCaml and Frama-C
@@ -36,7 +36,7 @@ frama-c -pcg-help # to check is the plugin is available
 frama-c -no-annot <source files> -load-script ~/Tools/FRAMAC/PLUGINS/PCGE_Argon/plug.ml -pcg-m m.dot -pcg-f f.dot
 dot -Tsvg m.dot -o m.svg
 dot -Tsvg f.dot -o f.svg
-firefox m.svg f.sv
+firefox m.svg f.svg
 ```
 
 * function call graph
