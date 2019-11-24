@@ -192,7 +192,7 @@ let add_func_to_prj ((mf,mm,gf,gm) as prj:prj_desc) fname =
   if not (string_map_exists fname mf) 
   then
     let kf=  Globals.Functions.find_by_name fname in
-    let owner= let {Lexing.pos_fname=n},_=Kernel_function.get_location kf in n in
+    let owner= let {Filepath.pos_path=n},_=Kernel_function.get_location kf in Filepath.Normalized.to_pretty_string n in
     let new_mf=
       let fdesc={
         fname=fname;
@@ -255,7 +255,7 @@ let print_graph_func fd ((mf,mm,gf,gm) as prj:prj_desc)=
       StringMap.iter print_cluster mm
   in
     Printf.fprintf fd "digraph G {\n";
-    Printf.fprintf fd "size=\"60,40\"; ratio = fill;\n";
+    (* Printf.fprintf fd "size=\"60,40\"; ratio = fill;\n"; *)
     print_called();
     print_cluster_part();
     Printf.fprintf fd "}\n"
@@ -324,7 +324,7 @@ let print_graph_func_mod  m ((mf,mm,gf,gm) as prj:prj_desc)=
     let fd = open_out ((Filename.chop_extension (Filename.basename m)) ^".dot");
     in
     Printf.fprintf fd "digraph G {\n";
-    Printf.fprintf fd "//size=\"60,40\"; ratio = fill;\n";
+    (* Printf.fprintf fd "//size=\"60,40\"; ratio = fill;\n"; *)
     print_called fd;
     print_cluster_part fd;
     Printf.fprintf fd "}\n";
@@ -369,7 +369,7 @@ let print_graph_mod2 fd ((mf,mm,gf,gm) as prj:prj_desc)=
       PairStringSet.iter fiter gm
   in
     Printf.fprintf fd "digraph G {\n";
-    Printf.fprintf fd "size=\"6,4\"; ratio = fill;\n";
+    (* Printf.fprintf fd "size=\"6,4\"; ratio = fill;\n"; *)
     print_called();
     Printf.fprintf fd "}\n"
 
