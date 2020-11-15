@@ -66,6 +66,14 @@ module CgAll =
        let kind = `Correctness
      end)
 
+module CommentOut =
+  Pcg.False
+    (struct
+       let option_name = "-pcg-comment"
+       let help = "comment metrics"
+       let kind = `Correctness
+     end)
+
 module CgStack_filename =
   Pcg.Empty_string
     (struct
@@ -164,6 +172,39 @@ object (self)
       | _   -> Cil.DoChildren
 
 end
+
+(* counting comments *)
+
+let m_function_comment_nb = ref StringMap.empty
+
+class c_globals_function =
+object (self) 
+  inherit Visitor.frama_c_inplace as super
+
+  val mutable current_function = "";
+
+  method vglob (g:global) =
+    (
+      match g with
+        GFun(({svar=vi}),_) ->
+        (
+          current_function <- vi.vname;
+          m_function_comment_nb := StringMap.add current_function 0 !m_function_comment_nb ;
+          Printf.printf "Gfun %s ===========>\n" vi.vname;
+          List.iter (fun s -> Printf.printf "%d %s \n" (List.length (String.split_on_char '\n' s)) s) (Globals.get_comments_global g);
+        )
+      | _ -> ()
+    ) ;
+    Cil.DoChildren
+
+  method vstmt (s:stmt) =
+    Printf.printf "Gstmt===========>\n";
+    List.iter (Printf.printf "%s\n") (Globals.get_comments_stmt s);
+    Cil.DoChildren
+
+
+end
+
 
 let get_called_functions kf =
   match kf.fundec with
@@ -497,7 +538,8 @@ let run () =
     if (   ((String.length fcg_filename) >0)
         || ((String.length mcg_filename) >0)
         || ((String.length stack_filename) >0)
-        || (CgAll.get ()))
+        || (CgAll.get ())
+        || (CommentOut.get ()))
     then
       begin
         ignore (Ast.get());
@@ -510,6 +552,14 @@ let run () =
             else
               filter_header prj
         in
+        if (CommentOut.get ())
+        then
+          (
+            Cabshelper.Comments.iter (fun (x,y) comment ->
+                Printf.printf "%i, %s\n"  x.pos_lnum comment);
+            (* Globals.Functions.iter (fun g -> List.iter (Printf.printf "%s\n") (Globals.get_comments_global g) *)
+             ignore (Visitor.visitFramacFile (new c_globals_function) (Ast.get ()))
+          );
 	if (CgAll.get ())
         then
 	  begin
