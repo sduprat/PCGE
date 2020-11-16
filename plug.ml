@@ -177,8 +177,14 @@ end
 
 let m_function_comment_nb = ref StringMap.empty
 
+let lines_of_string_list sl =
+  let ffold (n:int) (s:string)  =
+    n + (List.length (String.split_on_char '\n' s))
+  in
+  List.fold_left ffold 0 sl
+
 class c_globals_function =
-object (self) 
+object (self)
   inherit Visitor.frama_c_inplace as super
 
   val mutable current_function = "";
@@ -192,6 +198,9 @@ object (self)
           m_function_comment_nb := StringMap.add current_function 0 !m_function_comment_nb ;
           Printf.printf "Gfun %s ===========>\n" vi.vname;
           List.iter (fun s -> Printf.printf "%d %s \n" (List.length (String.split_on_char '\n' s)) s) (Globals.get_comments_global g);
+          let n = lines_of_string_list (Globals.get_comments_global g)
+          in
+          m_function_comment_nb := StringMap.add  current_function n !m_function_comment_nb ;
         )
       | _ -> ()
     ) ;
@@ -200,6 +209,8 @@ object (self)
   method vstmt (s:stmt) =
     Printf.printf "Gstmt===========>\n";
     List.iter (Printf.printf "%s\n") (Globals.get_comments_stmt s);
+    let prev_n = StringMap.find current_function !m_function_comment_nb
+    in m_function_comment_nb := StringMap.add current_function (prev_n+1) !m_function_comment_nb; Printf.printf "%d " prev_n;
     Cil.DoChildren
 
 
@@ -558,7 +569,8 @@ let run () =
             Cabshelper.Comments.iter (fun (x,y) comment ->
                 Printf.printf "%i, %s\n"  x.pos_lnum comment);
             (* Globals.Functions.iter (fun g -> List.iter (Printf.printf "%s\n") (Globals.get_comments_global g) *)
-             ignore (Visitor.visitFramacFile (new c_globals_function) (Ast.get ()))
+            ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
+            StringMap.iter (fun f n -> Printf.printf "%s;%d\n" f n) !m_function_comment_nb;
           );
 	if (CgAll.get ())
         then
