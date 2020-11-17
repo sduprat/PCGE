@@ -66,6 +66,16 @@ module CgAll =
        let kind = `Correctness
      end)
 
+module CgComments_filename =
+  Pcg.Empty_string
+    (struct
+       let option_name = "-pcg-comments"
+       let help = "count comments per functions"
+       let kind= `Tuning
+       let arg_name = "comments_file"
+       let default ="comments_count.txt"
+     end)
+
 module CommentOut =
   Pcg.False
     (struct
@@ -124,6 +134,7 @@ module StringSet = Set.Make(String)
 module PairOrd     = struct type t = int * int let compare = compare end
 module PairString = struct type t = string * string let compare = compare end
 module PairStringSet = Set.Make(PairString)
+module PairStringMap = Map.Make(PairString)
 
 type prj_desc = (function_node StringMap.t * module_node StringMap.t * PairStringSet.t * PairStringSet.t)
 
@@ -177,7 +188,7 @@ end
  * counting comments
  *)
 
-let m_function_comment_nb = ref StringMap.empty
+let m_function_comment_nb = ref PairStringMap.empty
 
 let lines_of_string_list sl =
   let ffold (n:int) (s:string)  =
@@ -190,42 +201,56 @@ object (self)
   inherit Visitor.frama_c_inplace as super
 
   val mutable current_function = "";
+  val mutable current_module = "";
 
   method vglob (g:global) =
     (
       match g with
         GFun(({svar=vi}),(l1,l2)) ->
         (
-          current_function <- vi.vname;
-          Format.printf "%a, %a\n" Filepath.Normalized.pp_abs l1.pos_path Filepath.Normalized.pp_abs l2.pos_path;
-          let filename = Filename.basename (Format.asprintf "%a\n" Filepath.Normalized.pp_abs l1.pos_path) in
-          if Filename.check_suffix filename ".c" 
+          let filename = Filename.basename (Format.asprintf "%a" Filepath.Normalized.pp_abs l1.pos_path) in
+          if (Str.string_match (Str.regexp ".*\\.c$") filename 0)
           then
             (* only for function in .c file *)
             (
-              m_function_comment_nb := StringMap.add current_function 0 !m_function_comment_nb ;
+              let module_name = (Filename.basename filename) in
+              current_function <- vi.vname;
+              current_module <- module_name;
+              let m_f = (current_module,current_function) in
+              m_function_comment_nb := PairStringMap.add m_f 0 !m_function_comment_nb ;
               Pcg.debug ~level:3 "Gfun %s ===========>\n" vi.vname;
               List.iter (fun s -> Pcg.debug ~level:4  "%d %s \n" (List.length (String.split_on_char '\n' s)) s) (Globals.get_comments_global g);
               let function_comments = Globals.get_comments_global g
               in
               if (List.length function_comments) > 0
               then
-                let n = lines_of_string_list [ List.hd (List.rev (Globals.get_comments_global g))]
-                in
-                m_function_comment_nb := StringMap.add  current_function n !m_function_comment_nb ;
+                (
+                  let n = lines_of_string_list [ List.hd (List.rev (Globals.get_comments_global g))]
+                  in
+                  m_function_comment_nb := PairStringMap.add  m_f n !m_function_comment_nb ;
+                );
+              Cil.DoChildren
             )
+          else
+            Cil.SkipChildren
         )
-      | _ -> ()
+
+      | _ -> Cil.SkipChildren
+
     ) ;
-    Cil.DoChildren
 
   method vstmt (s:stmt) =
-    Pcg.debug ~level:3  "Gstmt===========>\n";
-    List.iter (Pcg.debug ~level:4 "%s\n") (Globals.get_comments_stmt s);
-    let prev_n = StringMap.find current_function !m_function_comment_nb
-    and supp_n = lines_of_string_list (Globals.get_comments_stmt s)
-    in m_function_comment_nb := StringMap.add current_function (prev_n+supp_n) !m_function_comment_nb; Pcg.debug ~level:3 "%d " prev_n;
-    Cil.DoChildren
+    try
+      Pcg.debug ~level:3  "Gstmt===========>\n";
+      let comment_list = (Globals.get_comments_stmt s) in
+      List.iter (Pcg.debug ~level:4 "comment stmt = %s\n") comment_list;
+      let prev_n = PairStringMap.find (current_module,current_function) !m_function_comment_nb
+      and supp_n = if List.length comment_list > 0 then 1 else 0 
+        (* buggy behaviour of get_comments_stmt -> +1 per comment issue *)
+        (*lines_of_string_list (Globals.get_comments_stmt s)*)
+      in m_function_comment_nb := PairStringMap.add (current_module,current_function) (prev_n+supp_n) !m_function_comment_nb; Pcg.debug ~level:3 "%d " prev_n;
+      Cil.DoChildren
+    with Not_found -> Cil.DoChildren
 
 
 end
@@ -558,11 +583,13 @@ let run () =
   let fcg_filename = FunctionCg.get()
   and mcg_filename = ModuleCg.get()
   and stack_filename = CgStack_filename.get()
+  and comments_filename = CgComments_filename.get()
   in
 
     if (   ((String.length fcg_filename) >0)
         || ((String.length mcg_filename) >0)
         || ((String.length stack_filename) >0)
+        || ((String.length comments_filename) >0)
         || (CgAll.get ())
         || (CommentOut.get ()))
     then
@@ -580,11 +607,8 @@ let run () =
         if (CommentOut.get ())
         then
           (
-            Cabshelper.Comments.iter (fun (x,y) comment ->
-                Printf.printf "%i, %s\n"  x.pos_lnum comment);
-            (* Globals.Functions.iter (fun g -> List.iter (Printf.printf "%s\n") (Globals.get_comments_global g) *)
             ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
-            StringMap.iter (fun f n -> Printf.printf "%s;%d\n" f n) !m_function_comment_nb;
+            PairStringMap.iter (fun (m,f) n -> Printf.printf "%s;%s;%d\n" m f n) !m_function_comment_nb;
           );
 	if (CgAll.get ())
         then
@@ -625,6 +649,20 @@ let run () =
                 Pcg.error
                   "error during output of module callgraph: %s >%s<"
                   (Printexc.to_string e) mcg_filename
+            end;
+
+          if ((String.length comments_filename)>0)
+          then
+            begin
+              try
+                let o = open_out comments_filename in
+                  ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
+                  PairStringMap.iter (fun (m,f) n -> Printf.fprintf o "%s;%s;%d\n" m f n) !m_function_comment_nb;
+                  close_out o
+              with e ->
+                Pcg.error
+                  "error during output of comments count: %s >%s<"
+                  (Printexc.to_string e) comments_filename
             end;
 
         if ((String.length stack_filename)>0)
