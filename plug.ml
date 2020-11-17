@@ -173,7 +173,9 @@ object (self)
 
 end
 
-(* counting comments *)
+(*
+ * counting comments
+ *)
 
 let m_function_comment_nb = ref StringMap.empty
 
@@ -192,25 +194,37 @@ object (self)
   method vglob (g:global) =
     (
       match g with
-        GFun(({svar=vi}),_) ->
+        GFun(({svar=vi}),(l1,l2)) ->
         (
           current_function <- vi.vname;
-          m_function_comment_nb := StringMap.add current_function 0 !m_function_comment_nb ;
-          Printf.printf "Gfun %s ===========>\n" vi.vname;
-          List.iter (fun s -> Printf.printf "%d %s \n" (List.length (String.split_on_char '\n' s)) s) (Globals.get_comments_global g);
-          let n = lines_of_string_list (Globals.get_comments_global g)
-          in
-          m_function_comment_nb := StringMap.add  current_function n !m_function_comment_nb ;
+          Format.printf "%a, %a\n" Filepath.Normalized.pp_abs l1.pos_path Filepath.Normalized.pp_abs l2.pos_path;
+          let filename = Filename.basename (Format.asprintf "%a\n" Filepath.Normalized.pp_abs l1.pos_path) in
+          if Filename.check_suffix filename ".c" 
+          then
+            (* only for function in .c file *)
+            (
+              m_function_comment_nb := StringMap.add current_function 0 !m_function_comment_nb ;
+              Pcg.debug ~level:3 "Gfun %s ===========>\n" vi.vname;
+              List.iter (fun s -> Pcg.debug ~level:4  "%d %s \n" (List.length (String.split_on_char '\n' s)) s) (Globals.get_comments_global g);
+              let function_comments = Globals.get_comments_global g
+              in
+              if (List.length function_comments) > 0
+              then
+                let n = lines_of_string_list [ List.hd (List.rev (Globals.get_comments_global g))]
+                in
+                m_function_comment_nb := StringMap.add  current_function n !m_function_comment_nb ;
+            )
         )
       | _ -> ()
     ) ;
     Cil.DoChildren
 
   method vstmt (s:stmt) =
-    Printf.printf "Gstmt===========>\n";
-    List.iter (Printf.printf "%s\n") (Globals.get_comments_stmt s);
+    Pcg.debug ~level:3  "Gstmt===========>\n";
+    List.iter (Pcg.debug ~level:4 "%s\n") (Globals.get_comments_stmt s);
     let prev_n = StringMap.find current_function !m_function_comment_nb
-    in m_function_comment_nb := StringMap.add current_function (prev_n+1) !m_function_comment_nb; Printf.printf "%d " prev_n;
+    and supp_n = lines_of_string_list (Globals.get_comments_stmt s)
+    in m_function_comment_nb := StringMap.add current_function (prev_n+supp_n) !m_function_comment_nb; Pcg.debug ~level:3 "%d " prev_n;
     Cil.DoChildren
 
 
