@@ -258,7 +258,7 @@ object (self)
           if (Str.string_match (Str.regexp ".*\\.c$") filename 0)
           then
             (* only for function in .c file *)
-            (
+            begin
               compute_empty_lines_per_function (Filepath.Normalized.to_pretty_string l1.pos_path) ;
               let module_name = (Filename.basename filename) in
               current_function <- vi.vname;
@@ -278,26 +278,29 @@ object (self)
                 else
                   0
 
-              and
-                subarray =
+              and nb_lines_function =
+                let subarray =
                   try
                     Array.sub (Array.of_list !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1)
                   with Invalid_argument(_) ->
                     Printf.printf "ERROR : %d, %d, %d\n" (List.length !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1);
                     Array.sub (Array.of_list !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1)
-                in
-                let ffold n s =
+                and ffold n s =
                   if (Str.string_match (Str.regexp "[a-zA-Z0-9 ;{}]+") s 0) then n+1 else n
                 in
-                let nb_nonempty_line = Array.fold_left ffold 0 subarray in
-                let nb_empty_lines = (l2.pos_lnum - l1.pos_lnum -nb_nonempty_line +1)
-                and nb_comments_function = compute_comment_function vi.vname l1 l1.pos_lnum l2.pos_lnum
-                in
-                Format.printf "%a %d, %a %d, total %d, diff %d, %d\n" Filepath.Normalized.pp_abs l1.pos_path l1.pos_lnum Filepath.Normalized.pp_abs l2.pos_path l2.pos_lnum nb_nonempty_line (l2.pos_lnum - l1.pos_lnum -nb_nonempty_line +1) nb_comments_function;
+                Array.fold_left ffold 0 subarray
 
-
+              and nb_comments_function =
+                compute_comment_function vi.vname l1 l1.pos_lnum l2.pos_lnum
+              in
+              let nb_total_function = nb_comment_header + nb_lines_function
+              and nb_total_comments_function = nb_comment_header + nb_comments_function
+              in
+              Pcg.debug ~level:3  "%s %d %d total %d (%dc) - %d\n"
+                vi.vname l1.pos_lnum l2.pos_lnum nb_total_function nb_total_comments_function (nb_total_comments_function*100/nb_total_function);
+              
               Cil.DoChildren
-            )
+            end
           else
             Cil.SkipChildren
         end
