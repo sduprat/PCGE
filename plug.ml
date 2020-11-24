@@ -234,7 +234,9 @@ let compute_empty_lines_per_function (filename:string) =
           r_lines := init_empty_list !r_last_marker;
         end
       else
-        r_lines := List.append !r_lines [line]
+        (
+          r_lines := List.append !r_lines [line]
+        )
     done;
   with End_of_file ->
     close_in in_channel
@@ -276,7 +278,12 @@ object (self)
                     Printf.printf "ERROR : %d, %d, %d\n" (List.length !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1);
                     Array.sub (Array.of_list !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1)
                 and ffold n s =
-                  if (Str.string_match (Str.regexp "[a-zA-Z0-9 ;{}]+") s 0) then n+1 else n
+                  let res=
+                    if (Str.string_match (Str.regexp ".*[a-zA-Z0-9 ;{}]+") s 0) then n+1 else n
+                  in
+                  Pcg.debug ~level:3 "MATCH %s %d" s res;
+                  res;
+
                 in
                 Array.fold_left ffold 0 subarray
 
