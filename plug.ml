@@ -223,7 +223,7 @@ class commentsCabsVisitor = object(self)
         begin
           let subarray = 
             try
-              Array.sub (Array.of_list !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1)
+              Array.sub (Array.of_list !r_lines) (l1.pos_lnum-1) (l2.pos_lnum - l1.pos_lnum +1)
             with Invalid_argument(_) ->
               Printf.printf "ERROR : %d, %d, %d\n" (List.length !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1);
               Array.sub (Array.of_list !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1)
@@ -260,32 +260,26 @@ let rec init_empty_list n =
   else
     "" :: (init_empty_list (n-1))
 
-let compute_empty_lines_per_function () =
-    let cabs_files = Ast.UntypedFiles.get () in
-    let cabs_visitor = new commentsCabsVisitor in
-    List.iter (fun file ->
-        (* 1- compute all lines *)
+let compute_empty_lines_per_function (filename:string) =
+  r_lines := [""];
+  let in_channel = open_in filename in
+  try
+    let r_last_marker = ref 0 in
+    while true do
+      let line = input_line in_channel in
+      let r = Str.regexp "^# \\([0-9]+\\)" in
+      if Str.string_match r line 0
+      then
         begin
-          let in_channel = open_in (Filepath.Normalized.to_pretty_string (fst file)) in
-          try
-            let r_last_marker = ref 0 in
-            while true do
-              let line = input_line in_channel in
-              let r = Str.regexp "^# \\([0-9]+\\)" in
-              if Str.string_match r line 0
-              then
-                begin
-                  r_last_marker :=  (int_of_string (Str.matched_group 1 line));
-                  r_lines := init_empty_list !r_last_marker;
-                end
-              else
-                r_lines := List.append !r_lines [line]
-            done;
-            (*r_lines := strech_list !r_lines !r_last_marker*)
-          with End_of_file ->
-            close_in in_channel;
-        end;
-    ) cabs_files
+          r_last_marker :=  (int_of_string (Str.matched_group 1 line));
+          r_lines := init_empty_list !r_last_marker;
+        end
+      else
+        r_lines := List.append !r_lines [line]
+    done;
+    (*r_lines := strech_list !r_lines !r_last_marker*)
+  with End_of_file ->
+    close_in in_channel
 
 
 class c_globals_function =
@@ -294,6 +288,32 @@ object (self)
 
   val mutable current_function = "";
   val mutable current_module = "";
+
+  (* method vfile cil_type_file =
+   *   let str_name = Filepath.Normalized.to_pretty_string cil_type_file.fileName
+   *   in
+   *   Printf.printf "OPEN %s\n" str_name ;
+   *   let in_channel = open_in str_name in
+   *   try
+   *   let r_last_marker = ref 0 in
+   *   while true do
+   *     let line = input_line in_channel in
+   *     let r = Str.regexp "^# \\([0-9]+\\)" in
+   *     if Str.string_match r line 0
+   *     then
+   *       begin
+   *         r_last_marker :=  (int_of_string (Str.matched_group 1 line));
+   *         r_lines := init_empty_list !r_last_marker;
+   *       end
+   *     else
+   *       r_lines := List.append !r_lines [line]
+   *   done;
+   *   (\*r_lines := strech_list !r_lines !r_last_marker*\)
+   *   Cil.DoChildren
+   * with End_of_file ->
+   *   close_in in_channel;
+   *   Cil.DoChildren *)
+
 
   method vglob (g:global) =
     (
@@ -305,6 +325,7 @@ object (self)
           then
             (* only for function in .c file *)
             (
+              compute_empty_lines_per_function (Filepath.Normalized.to_pretty_string l1.pos_path) ;
               let module_name = (Filename.basename filename) in
               current_function <- vi.vname;
               current_module <- module_name;
@@ -723,7 +744,7 @@ let run () =
         if (CommentOut.get ())
         then
           (
-            compute_empty_lines_per_function();
+            (* compute_empty_lines_per_function (Filepath.Normalized.to_pretty_string cil_type_file.fileName); *)
             ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
             PairStringMap.iter (fun (m,f) n -> Printf.printf "%s;%s;%d\n" m f n) !m_function_comment_nb;
           );
