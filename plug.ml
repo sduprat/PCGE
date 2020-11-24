@@ -200,13 +200,12 @@ let lines_of_string_list sl =
 let r_lines = ref []
 
 let compute_comment_function (fname:string) (filepath:Filepath.position) lstart lend=
-  Printf.printf "%s %d %d\n" fname lstart lend ;
   let ffold ((pos1,pos2):cabsloc) str prev_n =
     if (((Filepath.Normalized.to_pretty_string filepath.pos_path)
          = (Filepath.Normalized.to_pretty_string pos1.pos_path))
         && pos1.pos_lnum>=lstart && pos1.pos_lnum<=lend)
     then
-      prev_n +1
+      prev_n + (lines_of_string_list [str])
     else
       prev_n
   in
@@ -245,10 +244,6 @@ class c_globals_function =
 object (self)
   inherit Visitor.frama_c_inplace as super
 
-  val mutable current_function = "";
-  val mutable current_module = "";
-
-
   method vglob (g:global) =
     begin
       match g with
@@ -260,11 +255,6 @@ object (self)
             (* only for function in .c file *)
             begin
               compute_empty_lines_per_function (Filepath.Normalized.to_pretty_string l1.pos_path) ;
-              let module_name = (Filename.basename filename) in
-              current_function <- vi.vname;
-              current_module <- module_name;
-              let m_f = (current_module,current_function) in
-              m_function_comment_nb := PairStringMap.add m_f 0 !m_function_comment_nb ;
 
               Pcg.debug ~level:3 "Gfun %s ===========>\n" vi.vname;
               List.iter (fun s -> Pcg.debug ~level:4  "%d %s \n" (List.length (String.split_on_char '\n' s)) s) (Globals.get_comments_global g);
@@ -298,7 +288,11 @@ object (self)
               in
               Pcg.debug ~level:3  "%s %d %d total %d (%dc) - %d\n"
                 vi.vname l1.pos_lnum l2.pos_lnum nb_total_function nb_total_comments_function (nb_total_comments_function*100/nb_total_function);
-              
+
+              let module_name = (Filename.basename filename) in
+              let m_f = (module_name,vi.vname) in
+              m_function_comment_nb := PairStringMap.add m_f (nb_total_function,nb_total_comments_function) !m_function_comment_nb ;
+
               Cil.DoChildren
             end
           else
@@ -682,7 +676,7 @@ let run () =
         then
           (
             ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
-            PairStringMap.iter (fun (m,f) n -> Printf.printf "%s;%s;%d\n" m f n) !m_function_comment_nb;
+            PairStringMap.iter (fun (m,f) (l,c) -> Printf.printf "%s;%s;%d;%d;%d\n" m f l c (c*100/l)) !m_function_comment_nb;
           );
         if (CgAll.get ())
         then
@@ -730,7 +724,8 @@ let run () =
               try
                 let o = open_out comments_filename in
                   ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
-                  PairStringMap.iter (fun (m,f) n -> Printf.fprintf o "%s;%s;%d\n" m f n) !m_function_comment_nb;
+                  Printf.fprintf o  "module;function;code+comments;comments; /100 of comments\n";
+                  PairStringMap.iter (fun (m,f) (l,c) -> Printf.fprintf o "%s;%s;%d;%d;%d\n" m f l c (c*100/l)) !m_function_comment_nb;
                   close_out o
               with e ->
                 Pcg.error
