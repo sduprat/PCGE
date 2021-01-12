@@ -264,7 +264,8 @@ object (self)
                 in
                 if (List.length function_comments_list) > 0
                 then
-                  lines_of_string_list [ List.hd (List.rev (Globals.get_comments_global g))]
+                  (* lines_of_string_list [ List.hd (List.rev (Globals.get_comments_global g))] *)
+                  lines_of_string_list (Globals.get_comments_global g)
                 else
                   0
 
