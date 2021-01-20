@@ -267,7 +267,8 @@ object (self)
                 if (List.length function_comments_list) > 0
                 then
                   (* lines_of_string_list [ List.hd (List.rev (Globals.get_comments_global g))] *)
-                  lines_of_string_list (Globals.get_comments_global g)
+                  (* lines_of_string_list (Globals.get_comments_global g) *)
+                  List.hd (List.filter (fun n -> if n>0 then true else false) (List.map (fun s -> List.length (String.split_on_char '\n' s)) (Globals.get_comments_global g)))
                 else
                   0
 
