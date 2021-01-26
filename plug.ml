@@ -651,8 +651,64 @@ let compute_stack ((mf,mm,gf,gm) as prj) =
   in
   StringMap.iter fiter func_to_analyse
 
+(*
+ * Depth computation
+ *)
+
+let m_function_depth = ref StringMap.empty
+
+class c_compute_depth () = object (self)
+  inherit Cabsvisit.nopCabsVisitor as super
+
+  val mutable depth = 0
+  val mutable max_depth = 0
+
+  method vdef d =
+   ( match d with
+       |FUNDEF (_,(_,(name,_,_,_)),bl,_,_) ->
+         depth     <- -1;
+         max_depth <- 0;
+         ignore (Cabsvisit.visitCabsBlock (self:>Cabsvisit.cabsVisitor) bl);
+         m_function_depth := StringMap.add name max_depth !m_function_depth;
+         Pcg.debug ~level:2 "depth %s = %d" name max_depth ;
+         SkipChildren
+       | _ -> DoChildren
+   );
+
+  method vstmt st =
+    (
+    match st.stmt_node with
+      |SWITCH (_, {stmt_node = BLOCK _}, _) -> depth <- depth-1
+      |_ -> ()
+    );
+    DoChildren
 
 
+  method vblock bl =
+    let {blabels = l1; battrs = l2; bstmts = l3} = bl in
+    Pcg.debug ~level:3 "block in ->%d,%d" depth max_depth ;
+    depth <- depth + 1;
+    max_depth <- max max_depth depth ;
+    List.iter (fun s -> ignore (Cabsvisit.visitCabsStatement (self:>Cabsvisit.cabsVisitor) s)) l3;
+    Pcg.debug ~level:3 "block ou ->%d,%d : %d, %d, %d" depth max_depth (List.length l1) (List.length l2) (List.length l3);
+    depth <- depth - 1;
+    SkipChildren
+
+(*  method vExitScope () =
+    if (depth > 0 ) then
+      depth <- depth -1;
+    Pcg.debug ~level:3 "block %d,%d <-" depth max_depth ;
+*)
+end
+
+
+let compute_depth () =
+  let visit_depth ((*fname*)_,_ as file) =
+    let visitor = new c_compute_depth () in
+    ignore (Cabsvisit.visitCabsFile (visitor:>Cabsvisit.cabsVisitor) file)
+  in
+  let untyped_files = Ast.UntypedFiles.get () in
+  List.iter visit_depth untyped_files
 
 
 let run () =
@@ -685,7 +741,16 @@ let run () =
         then
           (
             ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
-            PairStringMap.iter (fun (m,f) (l,c) -> Printf.printf "%s;%s;%d;%d;%d\n" m f l c (c*100/l)) !m_function_comment_nb;
+            compute_depth ();
+            let fiter (m,f) (l,c) =
+              let s_depth =
+                try
+                  string_of_int (StringMap.find f !m_function_depth)
+                with Not_found -> "unknown"
+              in
+              Printf.printf "%s;%s;%d;%d;%d;%s\n" m f l c (c*100/l) s_depth ;
+            in
+            PairStringMap.iter fiter !m_function_comment_nb;
           );
         if (CgAll.get ())
         then
@@ -733,8 +798,8 @@ let run () =
               try
                 let o = open_out comments_filename in
                   ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
-                  Printf.fprintf o  "module;function;code+comments;comments; /100 of comments\n";
-                  PairStringMap.iter (fun (m,f) (l,c) -> Printf.fprintf o "%s;%s;%d;%d;%d\n" m f l c (c*100/l)) !m_function_comment_nb;
+                  Printf.fprintf o  "module;function;code+comments;comments; /100 of comments;depth\n";
+                  PairStringMap.iter (fun (m,f) (l,c) -> Printf.fprintf o "%s;%s;%d;%d;%d;%d\n" m f l c (c*100/l) (StringMap.find f !m_function_depth)) !m_function_comment_nb;
                   close_out o
               with e ->
                 Pcg.error
