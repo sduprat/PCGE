@@ -178,7 +178,7 @@ object (self)
 
   method vinst (i:instr) =
     match i with
-        Call(_,{enode=Lval(Var({vname=n}),_)},_,_)      ->
+        Call(_,{enode=Lval(Var({vorig_name=n}),_)},_,_)      ->
           self#add_func_called n;
           Cil.DoChildren
       | _   -> Cil.DoChildren
@@ -258,7 +258,7 @@ object (self)
             begin
               compute_empty_lines_per_function (Filepath.Normalized.to_pretty_string l1.pos_path) ;
 
-              Pcg.debug ~level:3 "Gfun %s ===========>\n" vi.vname;
+              Pcg.debug ~level:3 "Gfun %s ===========>\n" vi.vorig_name;
               List.iter (fun s -> Pcg.debug ~level:4  "%d %s \n" (List.length (String.split_on_char '\n' s)) s) (Globals.get_comments_global g);
 
               let nb_comment_header =
@@ -290,16 +290,16 @@ object (self)
                 Array.fold_left ffold 0 subarray
 
               and nb_comments_function =
-                compute_comment_function vi.vname l1 l1.pos_lnum l2.pos_lnum
+                compute_comment_function vi.vorig_name l1 l1.pos_lnum l2.pos_lnum
               in
               let nb_total_function = nb_comment_header + nb_lines_function
               and nb_total_comments_function = nb_comment_header + nb_comments_function
               in
               Pcg.debug ~level:3  "%s %d %d total %d (%dc) - %d\n"
-                vi.vname l1.pos_lnum l2.pos_lnum nb_total_function nb_total_comments_function (nb_total_comments_function*100/nb_total_function);
+                vi.vorig_name l1.pos_lnum l2.pos_lnum nb_total_function nb_total_comments_function (nb_total_comments_function*100/nb_total_function);
 
               let module_name = (Filename.basename filename) in
-              let m_f = (module_name,vi.vname) in
+              let m_f = (module_name,vi.vorig_name) in
               m_function_comment_nb := PairStringMap.add m_f (nb_total_function,nb_total_comments_function) !m_function_comment_nb ;
 
               Cil.DoChildren
