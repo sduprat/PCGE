@@ -795,6 +795,7 @@ let run () =
           if ((String.length comments_filename)>0)
           then
             begin
+              compute_depth ();
               try
                 let o = open_out comments_filename in
                   ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
