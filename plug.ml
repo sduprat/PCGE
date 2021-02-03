@@ -799,7 +799,16 @@ let run () =
                 let o = open_out comments_filename in
                   ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
                   Printf.fprintf o  "module;function;code+comments;comments; /100 of comments;depth\n";
-                  PairStringMap.iter (fun (m,f) (l,c) -> Printf.fprintf o "%s;%s;%d;%d;%d;%d\n" m f l c (c*100/l) (StringMap.find f !m_function_depth)) !m_function_comment_nb;
+                  let fiter (m,f) (l,c) =
+                    let s_depth =
+                      try
+                        string_of_int (StringMap.find f !m_function_depth)
+                      with Not_found -> "unknown"
+                    in
+                    Printf.fprintf o "%s;%s;%d;%d;%d;%s\n" m f l c (c*100/l) s_depth ;
+                  in
+                  PairStringMap.iter fiter !m_function_comment_nb;
+                  (* PairStringMap.iter (fun (m,f) (l,c) -> Printf.fprintf o "%s;%s;%d;%d;%d;%d\n" m f l c (c*100/l) (StringMap.find f !m_function_depth)) !m_function_comment_nb; *)
                   close_out o
               with e ->
                 Pcg.error
