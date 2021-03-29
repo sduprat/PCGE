@@ -1,6 +1,6 @@
 (**************************************************************************)
 (*                                                                        *)
-(*  Copyright (C) 2018 stephane.duprat81@gmail.com                        *)
+(*  Copyright (C) 2020 stephane.duprat81@gmail.com                        *)
 (*                                                                        *)
 (*  you can redistribute it and/or modify it under the terms of the GNU   *)
 (*  Lesser General Public License as published by the Free Software       *)
@@ -20,6 +20,7 @@
 
 
 open Cil_types
+open Cabs
 
 module Pcg =
   Plugin.Register
@@ -63,6 +64,24 @@ module CgAll =
     (struct
        let option_name = "-pcg-all"
        let help = "one cg for each module"
+       let kind = `Correctness
+     end)
+
+module CgComments_filename =
+  Pcg.Empty_string
+    (struct
+       let option_name = "-pcg-comments"
+       let help = "count comments per functions"
+       let kind= `Tuning
+       let arg_name = "comments_file"
+       let default ="comments_count.txt"
+     end)
+
+module CommentOut =
+  Pcg.False
+    (struct
+       let option_name = "-pcg-comment"
+       let help = "comment metrics"
        let kind = `Correctness
      end)
 
@@ -111,17 +130,18 @@ type module_node = {
   is_header:bool;
 }
 
-module StringMap = Map.Make(String)
-module StringSet = Set.Make(String)
-module PairOrd     = struct type t = int * int let compare = compare end
+module StringMap  = Map.Make(String)
+module StringSet  = Set.Make(String)
+module PairOrd    = struct type t = int * int let compare = compare end
 module PairString = struct type t = string * string let compare = compare end
 module PairStringSet = Set.Make(PairString)
+module PairStringMap = Map.Make(PairString)
 
 type prj_desc = (function_node StringMap.t * module_node StringMap.t * PairStringSet.t * PairStringSet.t)
 
 let rec max_list l =
-  match l with 
-    [] -> 0 
+  match l with
+    [] -> 0
    |t::q -> max t (max_list q) ;;
 
 let cPT=ref 0
@@ -130,7 +150,7 @@ let new_id () =
   cPT := !cPT+1;
   !cPT
 
-let is_header n = 
+let is_header n =
   try
     (String.sub n ((String.length n)-2) 2)=".h"
   with Invalid_argument(_) ->
@@ -147,10 +167,10 @@ let string_map_exists e m =
       Not_found -> false
 
 class c_get_called =
-object (self) 
+object (self)
   inherit Visitor.frama_c_inplace as super
 
-  val mutable called_list = [] 
+  val mutable called_list = []
 
   method get_called_list() = called_list;
   method add_func_called f =
@@ -164,6 +184,150 @@ object (self)
       | _   -> Cil.DoChildren
 
 end
+
+(*
+ * counting comments
+ *)
+
+let m_function_comment_nb = ref PairStringMap.empty
+
+let lines_of_string_list sl =
+  let ffold (n:int) (s:string)  =
+    n + (List.length (String.split_on_char '\n' s))
+  in
+  List.fold_left ffold 0 sl
+
+let r_lines = ref []
+
+let compute_comment_function (fname:string) (filepath:Filepath.position) lstart lend=
+  let ffold ((pos1,pos2):cabsloc) str prev_n =
+    if (((Filepath.Normalized.to_pretty_string filepath.pos_path)
+         = (Filepath.Normalized.to_pretty_string pos1.pos_path))
+        && pos1.pos_lnum>=lstart && pos1.pos_lnum<=lend)
+    then
+      prev_n + (lines_of_string_list [str])
+    else
+      prev_n
+  in
+  Cabshelper.Comments.fold ffold 0
+
+
+let rec init_empty_list n =
+  if n=0
+  then
+    []
+  else
+    "" :: (init_empty_list (n-1))
+
+let compute_empty_lines_per_function (filename:string) =
+  r_lines := [""];
+  let in_channel = open_in filename in
+  try
+    let r_last_marker = ref 0 in
+    while true do
+      let line = input_line in_channel in
+      let r = Str.regexp "^# \\([0-9]+\\)" in
+      if Str.string_match r line 0
+      then
+        begin
+          r_last_marker :=  (int_of_string (Str.matched_group 1 line));
+          r_lines := init_empty_list !r_last_marker;
+        end
+      else
+        (
+          r_lines := List.append !r_lines [line]
+        )
+    done;
+  with End_of_file ->
+    close_in in_channel
+
+
+class c_globals_function =
+object (self)
+  inherit Visitor.frama_c_inplace as super
+
+  method vglob (g:global) =
+    begin
+      match g with
+        GFun(({svar=vi}),(l1,l2)) ->
+        begin
+          let filename = Filename.basename (Format.asprintf "%a" Filepath.Normalized.pp_abs l1.pos_path) in
+          if (Str.string_match (Str.regexp ".*\\.c$") filename 0)
+          then
+            (* only for function in .c file *)
+            begin
+              compute_empty_lines_per_function (Filepath.Normalized.to_pretty_string l1.pos_path) ;
+
+              Pcg.debug ~level:3 "Gfun %s ===========>\n" vi.vname;
+              List.iter (fun s -> Pcg.debug ~level:4  "%d %s \n" (List.length (String.split_on_char '\n' s)) s) (Globals.get_comments_global g);
+
+              let nb_comment_header =
+                let function_comments_list = Globals.get_comments_global g
+                in
+                if (List.length function_comments_list) > 0
+                then
+                  (* lines_of_string_list [ List.hd (List.rev (Globals.get_comments_global g))] *)
+                  (* lines_of_string_list (Globals.get_comments_global g) *)
+                  List.hd (List.filter (fun n -> if n>0 then true else false) (List.map (fun s -> List.length (String.split_on_char '\n' s)) (Globals.get_comments_global g)))
+                else
+                  0
+
+              and nb_lines_function =
+                let subarray =
+                  try
+                    Array.sub (Array.of_list !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1)
+                  with Invalid_argument(_) ->
+                    Printf.printf "ERROR : %d, %d, %d\n" (List.length !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1);
+                    Array.sub (Array.of_list !r_lines) l1.pos_lnum (l2.pos_lnum - l1.pos_lnum +1)
+                and ffold n s =
+                  let res=
+                    if (Str.string_match (Str.regexp ".*[a-zA-Z0-9 ;{}]+") s 0) then n+1 else n
+                  in
+                  Pcg.debug ~level:3 "MATCH %s %d" s res;
+                  res;
+
+                in
+                Array.fold_left ffold 0 subarray
+
+              and nb_comments_function =
+                compute_comment_function vi.vname l1 l1.pos_lnum l2.pos_lnum
+              in
+              let nb_total_function = nb_comment_header + nb_lines_function
+              and nb_total_comments_function = nb_comment_header + nb_comments_function
+              in
+              Pcg.debug ~level:3  "%s %d %d total %d (%dc) - %d\n"
+                vi.vname l1.pos_lnum l2.pos_lnum nb_total_function nb_total_comments_function (nb_total_comments_function*100/nb_total_function);
+
+              let module_name = (Filename.basename filename) in
+              let m_f = (module_name,vi.vname) in
+              m_function_comment_nb := PairStringMap.add m_f (nb_total_function,nb_total_comments_function) !m_function_comment_nb ;
+
+              Cil.DoChildren
+            end
+          else
+            Cil.SkipChildren
+        end
+
+      | _ -> Cil.SkipChildren
+
+    end ;
+
+  (* method vstmt (s:stmt) =
+   *   try
+   *     Pcg.debug ~level:3  "Gstmt===========>\n";
+   *     let comment_list = (Globals.get_comments_stmt s) in
+   *     List.iter (Pcg.debug ~level:4 "comment stmt = %s\n") comment_list;
+   *     let prev_n = PairStringMap.find (current_module,current_function) !m_function_comment_nb
+   *     and supp_n = if List.length comment_list > 0 then 1 else 0 
+   *       (\* buggy behaviour of get_comments_stmt -> +1 per comment issue *\)
+   *       (\*lines_of_string_list (Globals.get_comments_stmt s)*\)
+   *     in m_function_comment_nb := PairStringMap.add (current_module,current_function) (prev_n+supp_n) !m_function_comment_nb; Pcg.debug ~level:3 "%d " prev_n;
+   *     Cil.DoChildren
+   *   with Not_found -> Cil.DoChildren *)
+
+
+end
+
 
 let get_called_functions kf =
   match kf.fundec with
@@ -273,13 +437,13 @@ let center_prj_to_mod  m ((mf,mm,gf,gm) as prj:prj_desc)=
   in
   let new_mm = 
     let ffilter m _ =
-	(* m is a module of a function of the function map
-	   it exists in the function map an orig function whose module is m
-	   or an dest functions whose module is m *)
+        (* m is a module of a function of the function map
+           it exists in the function map an orig function whose module is m
+           or an dest functions whose module is m *)
       let ffind (a,b) =
-	let ma = (StringMap.find a mf).fmod
-	and mb = (StringMap.find b mf).fmod
-	in 
+        let ma = (StringMap.find a mf).fmod
+        and mb = (StringMap.find b mf).fmod
+        in 
         (0 = (compare m ma)) || (0 = (compare m mb))
       in
       PairStringSet.exists ffind new_gf
@@ -363,8 +527,8 @@ let print_graph_mod2 fd ((mf,mm,gf,gm) as prj:prj_desc)=
       and desc_b=StringMap.find b mm
       in
         Printf.fprintf fd "%s->%s\n" 
-	  (Filename.chop_extension (Filename.basename desc_a.mname))
-	  (Filename.chop_extension (Filename.basename desc_b.mname))
+          (Filename.chop_extension (Filename.basename desc_a.mname))
+          (Filename.chop_extension (Filename.basename desc_b.mname))
     in
       PairStringSet.iter fiter gm
   in
@@ -382,8 +546,8 @@ let parse_stack_size_file prj =
     if (Str.string_match reg line_str 0)
     then
       begin
-	let n1 = Str.matched_group 1 line_str
-	and n2 = Str.matched_group 2 line_str in
+        let n1 = Str.matched_group 1 line_str
+        and n2 = Str.matched_group 2 line_str in
         Pcg.debug ~level:2 "function %s : %s" n1 n2 ;
         StringMap.add n1 (int_of_string n2) map
       end
@@ -399,17 +563,17 @@ let parse_stack_size_file prj =
       let ref_file = open_in filename
       in
       try
-	Pcg.debug ~level:2 "Parsing stack conf file %s\n" filename ;
-	while true do
-	  computingmap := parse_line (input_line ref_file) !computingmap;
-	done;      
+        Pcg.debug ~level:2 "Parsing stack conf file %s\n" filename ;
+        while true do
+          computingmap := parse_line (input_line ref_file) !computingmap;
+        done;      
       with End_of_file -> close_in ref_file
     with 
-      Sys_error(str)	-> 
+      Sys_error(str)    -> 
       Pcg.warning "Error opening file %s (%s)\n" filename str 
   with 
     (* no stack file  *)
-    Not_found		->
+    Not_found           ->
      Pcg.debug ~level:2 "No stack file set"
 
 let computingset = ref PairStringSet.empty 
@@ -420,8 +584,8 @@ let parse_stack_call_file prj =
     if (Str.string_match reg line_str 0)
     then
       begin
-	let f1 = Str.matched_group 1 line_str
-	and f2 = Str.matched_group 2 line_str in
+        let f1 = Str.matched_group 1 line_str
+        and f2 = Str.matched_group 2 line_str in
         Pcg.debug ~level:2 "add call %s -> %s" f1 f2 ;
         PairStringSet.add (f1,f2) set
       end
@@ -437,17 +601,17 @@ let parse_stack_call_file prj =
       let ref_file = open_in filename
       in
       try
-	Pcg.debug ~level:2 "Parsing stack calls conf file %s\n" filename ;
-	while true do
-	  computingset := parse_line (input_line ref_file) !computingset;
-	done;      
+        Pcg.debug ~level:2 "Parsing stack calls conf file %s\n" filename ;
+        while true do
+          computingset := parse_line (input_line ref_file) !computingset;
+        done;      
       with End_of_file -> close_in ref_file
     with 
-      Sys_error(str)	-> 
+      Sys_error(str)    -> 
       Pcg.warning "Error opening file %s (%s)\n" filename str 
   with 
     (* no stack file  *)
-    Not_found		->
+    Not_found           ->
      Pcg.debug ~level:2 "No stack file set"
 
 let compute_stack ((mf,mm,gf,gm) as prj) =
@@ -485,23 +649,30 @@ let compute_stack ((mf,mm,gf,gm) as prj) =
     else
       mf;
   in
-  StringMap.iter fiter func_to_analyse 
+  StringMap.iter fiter func_to_analyse
 
-let run () =  
+
+
+
+
+let run () =
 
   let fcg_filename = FunctionCg.get()
   and mcg_filename = ModuleCg.get()
   and stack_filename = CgStack_filename.get()
+  and comments_filename = CgComments_filename.get()
   in
 
     if (   ((String.length fcg_filename) >0)
         || ((String.length mcg_filename) >0)
         || ((String.length stack_filename) >0)
-        || (CgAll.get ()))
+        || ((String.length comments_filename) >0)
+        || (CgAll.get ())
+        || (CommentOut.get ()))
     then
       begin
-        ignore (Ast.get());
-        let prj = 
+        let cil_type_file = Ast.get() in
+        let prj =
           let prj=compute_prj ()
           in
             if (CgHead.get ())
@@ -510,22 +681,27 @@ let run () =
             else
               filter_header prj
         in
-	if (CgAll.get ())
+        if (CommentOut.get ())
         then
-	  begin
+          (
+            ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
+            PairStringMap.iter (fun (m,f) (l,c) -> Printf.printf "%s;%s;%d;%d;%d\n" m f l c (c*100/l)) !m_function_comment_nb;
+          );
+        if (CgAll.get ())
+        then
+          begin
             let (mf,mm,gf,gm) = prj;
-	    in 
-	    logdeb3 "print all" ;
-	    (* StringMap.iter (fun m d -> print_graph_func_mod m prj) mm; *)
-	    let print_graph_func_mod2 m prj =
-	      let fd = open_out ((Filename.chop_extension (Filename.basename m)) ^".dot")
-	      in
-	      print_graph_func fd prj;
-	      close_out fd
-	    in
-	    StringMap.iter (fun m d -> print_graph_func_mod2 m (center_prj_to_mod m prj)) mm;
-	    
-	  end;
+            in
+            logdeb3 "print all" ;
+            (* StringMap.iter (fun m d -> print_graph_func_mod m prj) mm; *)
+            let print_graph_func_mod2 m prj =
+              let fd = open_out ((Filename.chop_extension (Filename.basename m)) ^".dot")
+              in
+              print_graph_func fd prj;
+              close_out fd
+            in
+            StringMap.iter (fun m d -> print_graph_func_mod2 m (center_prj_to_mod m prj)) mm;
+          end;
         if ((String.length fcg_filename)>0)
           then
             begin
@@ -549,6 +725,21 @@ let run () =
                 Pcg.error
                   "error during output of module callgraph: %s >%s<"
                   (Printexc.to_string e) mcg_filename
+            end;
+
+          if ((String.length comments_filename)>0)
+          then
+            begin
+              try
+                let o = open_out comments_filename in
+                  ignore (Visitor.visitFramacFile ((new c_globals_function):> Visitor.frama_c_visitor) (Ast.get ()));
+                  Printf.fprintf o  "module;function;code+comments;comments; /100 of comments\n";
+                  PairStringMap.iter (fun (m,f) (l,c) -> Printf.fprintf o "%s;%s;%d;%d;%d\n" m f l c (c*100/l)) !m_function_comment_nb;
+                  close_out o
+              with e ->
+                Pcg.error
+                  "error during output of comments count: %s >%s<"
+                  (Printexc.to_string e) comments_filename
             end;
 
         if ((String.length stack_filename)>0)
