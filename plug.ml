@@ -120,7 +120,7 @@ let logdeb3 msg =
 type function_node = {
   fname: string;
   fid : int;
-  is_def:bool;
+(*  is_def:bool;*)
   fmod:string;
 }
 
@@ -355,13 +355,20 @@ let add_edge_to_prj a ((mf,mm,gf,gm):prj_desc) b =
 let add_func_to_prj ((mf,mm,gf,gm) as prj:prj_desc) fname =
   if not (string_map_exists fname mf) 
   then
-    let kf=  Globals.Functions.find_by_name fname in
-    let owner= let {Filepath.pos_path=n},_=Kernel_function.get_location kf in Filepath.Normalized.to_pretty_string n in
+    let owner=
+    try
+      let {Filepath.pos_path=n},_=(let kf= Globals.Functions.find_by_name fname in Kernel_function.get_location kf)
+       in Filepath.Normalized.to_pretty_string n
+    with Not_found ->
+      Pcg.error  "%s not found, put in \"UknownModule\"\n" fname;
+      "UnknownModule"
+    in
+
     let new_mf=
       let fdesc={
         fname=fname;
         fid=new_id();
-        is_def=Kernel_function.is_definition kf;
+(*        is_def=Kernel_function.is_definition kf;*)
         fmod=owner;}
       in
         StringMap.add fname fdesc mf
@@ -378,8 +385,8 @@ let add_func_to_prj ((mf,mm,gf,gm) as prj:prj_desc) fname =
             mm
     in
       (new_mf, new_mm, gf, gm)
-      else
-        prj
+  else
+    prj
 
 let compute_prj ()=
   let ffold kf ((mf,mm,gf,gm) as prj:prj_desc) =
