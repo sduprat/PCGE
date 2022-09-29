@@ -263,12 +263,13 @@ object (self)
 
               let nb_comment_header =
                 let function_comments_list = Globals.get_comments_global g
+                and max_of_list l = List.fold_left max 0 l
                 in
                 if (List.length function_comments_list) > 0
                 then
                   (* lines_of_string_list [ List.hd (List.rev (Globals.get_comments_global g))] *)
                   (* lines_of_string_list (Globals.get_comments_global g) *)
-                  List.hd (List.filter (fun n -> if n>0 then true else false) (List.map (fun s -> List.length (String.split_on_char '\n' s)) (Globals.get_comments_global g)))
+                  max_of_list (List.filter (fun n -> Pcg.debug ~level:3 "n %d " n; if n>0 then true else false) (List.map (fun s -> List.length (String.split_on_char '\n' s)) (Globals.get_comments_global g)))
                 else
                   0
 
@@ -295,8 +296,8 @@ object (self)
               let nb_total_function = nb_comment_header + nb_lines_function
               and nb_total_comments_function = nb_comment_header + nb_comments_function
               in
-              Pcg.debug ~level:3  "%s %d %d total %d (%dc) - %d\n"
-                vi.vorig_name l1.pos_lnum l2.pos_lnum nb_total_function nb_total_comments_function (nb_total_comments_function*100/nb_total_function);
+              Pcg.debug ~level:3  "%s %d %d total %d (%dc, %d+%d) - %d\n"
+                vi.vorig_name l1.pos_lnum l2.pos_lnum nb_total_function nb_total_comments_function nb_comment_header nb_comments_function  (nb_total_comments_function*100/nb_total_function);
 
               let module_name = (Filename.basename filename) in
               let m_f = (module_name,vi.vorig_name) in
